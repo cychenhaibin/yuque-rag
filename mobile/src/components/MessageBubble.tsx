@@ -1,0 +1,155 @@
+import React from 'react';
+import {View, Text, StyleSheet, useColorScheme} from 'react-native';
+import Markdown from 'react-native-markdown-display';
+import {Message} from '../types';
+import {Colors, Spacing, FontSizes} from '../config';
+
+interface MessageBubbleProps {
+  message: Message;
+}
+
+export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
+  const isDark = useColorScheme() === 'dark';
+  const isUser = message.role === 'user';
+
+  const bubbleColor = isUser
+    ? Colors.userBubble
+    : isDark
+    ? Colors.aiBubbleDark
+    : Colors.aiBubble;
+
+  const textColor = isUser ? '#fff' : isDark ? Colors.textDark : Colors.text;
+
+  // 格式化时间戳
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  return (
+    <View style={[styles.container, isUser ? styles.userContainer : styles.aiContainer]}>
+      <View style={[styles.bubble, {backgroundColor: bubbleColor}]}>
+        {isUser ? (
+          <Text style={[styles.messageText, {color: textColor}]}>
+            {message.content}
+          </Text>
+        ) : (
+          <Markdown
+            style={getMarkdownStyles(isDark)}
+            mergeStyle={false}>
+            {message.content}
+          </Markdown>
+        )}
+        {message.isStreaming && (
+          <View style={styles.streamingIndicator}>
+            <Text style={[styles.streamingText, {color: textColor}]}>●</Text>
+          </View>
+        )}
+      </View>
+      <Text
+        style={[
+          styles.timestamp,
+          {color: isDark ? Colors.textSecondaryDark : Colors.textSecondary},
+          isUser && styles.timestampUser,
+        ]}>
+        {formatTime(message.timestamp)}
+      </Text>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    marginVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+  },
+  userContainer: {
+    alignItems: 'flex-end',
+  },
+  aiContainer: {
+    alignItems: 'flex-start',
+  },
+  bubble: {
+    borderRadius: 16,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+  },
+  messageText: {
+    fontSize: FontSizes.medium,
+    lineHeight: 20,
+  },
+  streamingIndicator: {
+    marginTop: Spacing.xs,
+  },
+  streamingText: {
+    fontSize: FontSizes.small,
+    opacity: 0.7,
+  },
+  timestamp: {
+    fontSize: FontSizes.small - 1,
+    marginTop: Spacing.xs / 2,
+    marginHorizontal: Spacing.xs,
+  },
+  timestampUser: {
+    textAlign: 'right',
+  },
+});
+
+const getMarkdownStyles = (isDark: boolean) =>
+  StyleSheet.create({
+    body: {
+      fontSize: FontSizes.medium,
+      lineHeight: 20,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    paragraph: {
+      marginTop: 0,
+      marginBottom: Spacing.xs,
+    },
+    strong: {
+      fontWeight: '700',
+    },
+    em: {
+      fontStyle: 'italic',
+    },
+    code_inline: {
+      fontFamily: 'Menlo',
+      backgroundColor: isDark ? Colors.cardDark : '#f5f5f5',
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderRadius: 4,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    code_block: {
+      fontFamily: 'Menlo',
+      backgroundColor: isDark ? Colors.cardDark : '#f5f5f5',
+      padding: Spacing.sm,
+      borderRadius: 8,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    // fenced code block（``` 包裹的多行代码）
+    fence: {
+      fontFamily: 'Menlo',
+      backgroundColor: isDark ? Colors.cardDark : '#f5f5f5',
+      padding: Spacing.sm,
+      borderRadius: 8,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    bullet_list: {
+      marginBottom: Spacing.xs,
+    },
+    ordered_list: {
+      marginBottom: Spacing.xs,
+    },
+    list_item: {
+      flexDirection: 'row',
+    },
+    link: {
+      color: Colors.primary,
+      textDecorationLine: 'underline',
+    },
+  });
+
+
