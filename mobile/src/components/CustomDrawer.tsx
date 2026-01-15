@@ -98,7 +98,7 @@ export const DrawerScreen: React.FC = () => {
   const borderColor = isDark ? Colors.borderDark : Colors.border;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
+    <View style={[styles.container]}>
       {/* 抽屉内容 */}
       <Animated.View
         style={[
@@ -106,6 +106,8 @@ export const DrawerScreen: React.FC = () => {
           {
             backgroundColor: cardColor,
             width: widthAnim,
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
           },
         ]}>
           {/* 搜索框 */}
@@ -163,8 +165,8 @@ export const DrawerScreen: React.FC = () => {
               </View>
             ) : (
               <>
-                {/* 主要功能菜单 */}
-                <View style={styles.menuSection}>
+              {/* 主要功能菜单 */}
+              <View style={styles.menuSection}>
               <TouchableOpacity
                 style={[styles.menuItem, {backgroundColor: cardColor}]}
                 onPress={handleNewChat}>
@@ -260,7 +262,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: FontSizes.medium,
+    fontSize: FontSizes.large,
     paddingVertical: Spacing.xs,
   },
   searchResults: {
@@ -289,29 +291,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   menuSection: {
-    marginBottom: Spacing.md,
+    // marginBottom: Spacing.md,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    gap: Spacing.md,
+    paddingVertical: Spacing.base,
+    gap: Spacing.sm,
   },
   menuItemText: {
-    fontSize: FontSizes.medium,
+    fontSize: FontSizes.large,
     fontWeight: '500',
   },
   historySection: {
-    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
   },
   historyItem: {
-    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
+    // borderBottomWidth: 1,
   },
   historyTitle: {
-    fontSize: FontSizes.medium,
+    fontSize: FontSizes.large,
   },
   userSection: {
     flexDirection: 'row',
@@ -335,10 +336,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: Spacing.xs,
+    // justifyContent: 'space-between',
   },
   userName: {
-    fontSize: FontSizes.medium,
+    fontSize: FontSizes.large,
     fontWeight: '600',
   },
 });
