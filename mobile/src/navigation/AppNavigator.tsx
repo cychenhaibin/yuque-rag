@@ -137,37 +137,52 @@ const MainNavigator = () => {
         options={({ navigation }) => ({
           headerShown: false,
           presentation: 'transparentModal',
-          cardStyle: { backgroundColor: 'transparent' },
-          cardStyleInterpolator: ({ current, layouts }) => ({
-            cardStyle: {
-              transform: [
-                {
-                  translateX: current.progress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-layouts.screen.width, 0],
-                  }),
-                },
-              ],
-            },
-            overlayStyle: {
-              opacity: current.progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 1],
-              }),
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            },
-          }),
-          cardOverlay: ({ style }: any) => (
+          cardOverlayEnabled: true,
+          cardStyle: {
+            backgroundColor: 'transparent',
+          },
+          cardStyleInterpolator: ({ current, layouts }) => {
+            const translateX = current.progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [-layouts.screen.width, 0],
+            });
+
+            const overlayOpacity = current.progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 1],
+            });
+
+            return {
+              cardStyle: {
+                transform: [{ translateX }],
+              },
+              overlayStyle: {
+                opacity: overlayOpacity,
+              },
+            };
+          },
+          cardOverlay: ({ style }) => (
             <TouchableWithoutFeedback onPress={() => navigation.goBack()}>
-              <View style={[{ flex: 1 }, style]} />
+              <View
+                style={[
+                  StyleSheet.absoluteFill,
+                  { backgroundColor: 'rgba(0,0,0,0.5)' }
+                ]}
+              />
             </TouchableWithoutFeedback>
           ),
+          transitionSpec: {
+            open: {
+              animation: 'timing',
+              config: { duration: 260 },
+            },
+            close: {
+              animation: 'timing',
+              config: { duration: 220 },
+            },
+          },
           gestureEnabled: true,
           gestureDirection: 'horizontal',
-          transitionSpec: {
-            open: { animation: 'timing', config: { duration: 260 } },
-            close: { animation: 'timing', config: { duration: 220 } },
-          },
         })}
       />
     </MainStack.Navigator>
