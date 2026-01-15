@@ -26,7 +26,11 @@
     "react-native-screens": "^4.4.0",
     "react-native-svg": "^15.8.0",
     "react-native-vector-icons": "^10.2.0",
-    "react-native-markdown-display": "^7.0.0-alpha.2"
+    "react-native-markdown-display": "^7.0.0-alpha.2",
+    "katex": "^0.16.22",
+    "markdown-it-math": "^4.1.1",
+    "markdown-it-texmath": "^1.0.0",
+    "react-native-mathjax-svg": "^0.9.9"   
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -1,6 +1,9 @@
-import React from 'react';
-import {View, Text, StyleSheet, useColorScheme} from 'react-native';
-import Markdown from 'react-native-markdown-display';
+import React, {useMemo} from 'react';
+import {View, Text, StyleSheet, useColorScheme, ViewStyle} from 'react-native';
+import Markdown, {MarkdownIt, RenderRules, ASTNode} from 'react-native-markdown-display';
+// @ts-ignore - markdown-it-math 没有类型定义
+import MarkdownItMath from 'markdown-it-math';
+import MathJax from 'react-native-mathjax-svg';
 import {Message} from '../types';
 import {Colors, Spacing, FontSizes} from '../config';
 
@@ -20,6 +23,49 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
 
   const textColor = isUser ? '#fff' : isDark ? Colors.textDark : Colors.text;
 
+  // 创建支持数学公式的 markdown-it 实例
+  const markdownItInstance = useMemo(() => {
+    return new MarkdownIt({typographer: true})
+      .use(MarkdownItMath, {
+        inlineOpen: '$',
+        inlineClose: '$',
+        blockOpen: '$$',
+        blockClose: '$$',
+      })
+      .use(MarkdownItMath, {
+        inlineOpen: '\\(',
+        inlineClose: '\\)',
+        blockOpen: '\\[',
+        blockClose: '\\]',
+      });
+  }, []);
+
+  // 渲染数学公式
+  const renderEquation = (node: ASTNode) => {
+    const equationStyle: ViewStyle =
+      node.type === 'math_block'
+        ? {...styles.equation, ...styles.equationBlock}
+        : styles.equation;
+
+    return (
+      <MathJax key={node.key} style={equationStyle} math={node.content} />
+    );
+  };
+
+  // 定义渲染规则
+  const rules: RenderRules = useMemo(
+    () => ({
+      math_inline: renderEquation,
+      math_block: renderEquation,
+      textgroup: (node: ASTNode, children: React.ReactNode) => (
+        <Text key={node.key} selectable={true}>
+          {children}
+        </Text>
+      ),
+    }),
+    [],
+  );
+
   // 格式化时间戳
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -37,6 +83,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
           </Text>
         ) : (
           <Markdown
+            markdownit={markdownItInstance}
+            rules={rules}
             style={getMarkdownStyles(isDark)}
             mergeStyle={false}>
             {message.content}
@@ -95,6 +143,14 @@ const styles = StyleSheet.create({
   timestampUser: {
     textAlign: 'right',
   },
+  equation: {
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+  },
+  equationBlock: {
+    width: '100%',
+    marginVertical: Spacing.xs,
+  },
 });
 
 const getMarkdownStyles = (isDark: boolean) =>
@@ -107,6 +163,49 @@ const getMarkdownStyles = (isDark: boolean) =>
     paragraph: {
       marginTop: 0,
       marginBottom: Spacing.xs,
+    },
+    // 标题样式 - 控制字体大小不要太大
+    heading1: {
+      fontSize: FontSizes.large,
+      fontWeight: '700',
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.xs,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    heading2: {
+      fontSize: FontSizes.large,
+      fontWeight: '700',
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.xs,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    heading3: {
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.xs,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    heading4: {
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+      marginTop: Spacing.xs,
+      marginBottom: Spacing.xs / 2,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    heading5: {
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+      marginTop: Spacing.xs,
+      marginBottom: Spacing.xs / 2,
+      color: isDark ? Colors.textDark : Colors.text,
+    },
+    heading6: {
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+      marginTop: Spacing.xs,
+      marginBottom: Spacing.xs / 2,
+      color: isDark ? Colors.textDark : Colors.text,
     },
     strong: {
       fontWeight: '700',
