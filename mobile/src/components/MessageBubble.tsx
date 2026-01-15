@@ -25,44 +25,63 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
 
   // 创建支持数学公式的 markdown-it 实例
   const markdownItInstance = useMemo(() => {
-    return new MarkdownIt({typographer: true})
-      .use(MarkdownItMath, {
-        inlineOpen: '$',
-        inlineClose: '$',
-        blockOpen: '$$',
-        blockClose: '$$',
-      })
-      .use(MarkdownItMath, {
-        inlineOpen: '\\(',
-        inlineClose: '\\)',
-        blockOpen: '\\[',
-        blockClose: '\\]',
-      });
+    const md = new MarkdownIt({typographer: true});
+    // 使用 markdown-it-math 支持 $...$ 和 $$...$$
+    md.use(MarkdownItMath, {
+      inlineOpen: '$',
+      inlineClose: '$',
+      blockOpen: '$$',
+      blockClose: '$$',
+    });
+    // 再次使用以支持 \(...\) 和 \[...\]
+    md.use(MarkdownItMath, {
+      inlineOpen: '\\(',
+      inlineClose: '\\)',
+      blockOpen: '\\[',
+      blockClose: '\\]',
+    });
+    return md;
   }, []);
-
-  // 渲染数学公式
-  const renderEquation = (node: ASTNode) => {
-    const equationStyle: ViewStyle =
-      node.type === 'math_block'
-        ? {...styles.equation, ...styles.equationBlock}
-        : styles.equation;
-
-    return (
-      <MathJax key={node.key} style={equationStyle} math={node.content} />
-    );
-  };
 
   // 定义渲染规则
   const rules: RenderRules = useMemo(
-    () => ({
-      math_inline: renderEquation,
-      math_block: renderEquation,
-      textgroup: (node: ASTNode, children: React.ReactNode) => (
-        <Text key={node.key} selectable={true}>
-          {children}
-        </Text>
-      ),
-    }),
+    () => {
+      // 渲染数学公式
+      const renderEquation = (node: ASTNode) => {
+        const equationStyle: ViewStyle =
+          node.type === 'math_block'
+            ? {...styles.equation, ...styles.equationBlock}
+            : styles.equation;
+
+        // 获取公式内容
+        const mathContent =
+          typeof node.content === 'string'
+            ? node.content
+            : node.children
+            ? node.children.map((child: any) => child.content || '').join('')
+            : '';
+
+        if (!mathContent) {
+          return null;
+        }
+
+        return (
+          <View key={node.key} style={equationStyle}>
+            <MathJax>{mathContent}</MathJax>
+          </View>
+        );
+      };
+
+      return {
+        math_inline: renderEquation,
+        math_block: renderEquation,
+        textgroup: (node: ASTNode, children: React.ReactNode) => (
+          <Text key={node.key} selectable={true}>
+            {children}
+          </Text>
+        ),
+      };
+    },
     [],
   );
 
