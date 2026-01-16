@@ -34,8 +34,8 @@ export const Colors = {
   inputBackgroundDark: '#2a2a2a',
   
   // 背景色
-  background: 'rgba(255, 255, 255, 0.7)',
-  backgroundDark: 'rgba(0, 0, 0, 0.7)',
+  background: '#f5f5f5',
+  backgroundDark: '#121212',
   
   // 卡片背景
   card: '#ffffff',
