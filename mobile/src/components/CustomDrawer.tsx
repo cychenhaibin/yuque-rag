@@ -82,16 +82,30 @@ export const DrawerScreen: React.FC = () => {
   };
 
   const handleNewChat = () => {
-    navigation.navigate('Chat');
     handleClose();
+    // 延迟导航，确保 drawer 关闭动画完成后再导航
+    setTimeout(() => {
+      navigation.navigate('Chat', {createNew: true});
+    }, 100);
+  };
+
+  const handleSessionClick = (sessionId: string) => {
+    handleClose();
+    // 延迟导航，确保 drawer 关闭动画完成后再导航
+    setTimeout(() => {
+      navigation.navigate('Chat', {sessionId});
+    }, 100);
   };
 
   const handleNavigate = (screen: keyof MainStackParamList) => {
-    navigation.navigate(screen);
     handleClose();
+    // 延迟导航，确保 drawer 关闭动画完成
+    setTimeout(() => {
+      navigation.navigate(screen);
+    }, 100);
   };
 
-  const backgroundColor = isDark ? Colors.backgroundDark : Colors.background;
+  const backgroundColor = isDark ? Colors.backgroundDark : Colors.inputBackground;
   const cardColor = isDark ? Colors.cardDark : Colors.card;
   const textColor = isDark ? Colors.textDark : Colors.text;
   const textSecondary = isDark ? Colors.textSecondaryDark : Colors.textSecondary;
@@ -148,7 +162,7 @@ export const DrawerScreen: React.FC = () => {
                           styles.searchResultItem,
                           {borderBottomColor: borderColor},
                         ]}
-                        onPress={handleNewChat}>
+                        onPress={() => handleSessionClick(session.id)}>
                         <Icon name="history" size={20} color={textSecondary} />
                         <Text
                           style={[styles.searchResultText, {color: textColor}]}
@@ -199,7 +213,7 @@ export const DrawerScreen: React.FC = () => {
                       styles.historyItem,
                       {borderBottomColor: borderColor},
                     ]}
-                    onPress={handleNewChat}>
+                    onPress={() => handleSessionClick(session.id)}>
                     <Text
                       style={[styles.historyTitle, {color: textColor}]}
                       numberOfLines={1}>

@@ -26,7 +26,7 @@ export type AuthStackParamList = {
 };
 
 export type MainStackParamList = {
-  Chat: undefined;
+  Chat: {createNew?: boolean; sessionId?: string} | undefined;
   History: undefined;
   Profile: undefined;
   Drawer: undefined;
@@ -207,7 +207,7 @@ export const AppNavigator = () => {
         dark: isDark,
         colors: {
           primary: Colors.primary,
-          background: 'transparent',
+          background: isDark ? Colors.backgroundDark : Colors.background,
           card: isDark ? Colors.cardDark : Colors.card,
           text: isDark ? Colors.textDark : Colors.text,
           border: isDark ? Colors.borderDark : Colors.border,

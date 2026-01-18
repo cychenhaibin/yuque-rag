@@ -5,16 +5,17 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
   useColorScheme,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import {useAuth} from '../contexts/AuthContext';
+import {useAlert} from '../contexts/AlertContext';
 import {Colors, Spacing, FontSizes} from '../config';
 import {Storage} from '../utils/storage';
 
 export const ProfileScreen: React.FC = () => {
   const {user, logout} = useAuth();
+  const {showConfirm, showError, showSuccess, showInfo} = useAlert();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isDark = useColorScheme() === 'dark';
 
@@ -22,47 +23,37 @@ export const ProfileScreen: React.FC = () => {
    * 处理登出
    */
   const handleLogout = () => {
-    Alert.alert('确认登出', '确定要退出登录吗？', [
-      {text: '取消', style: 'cancel'},
-      {
-        text: '登出',
-        style: 'destructive',
-        onPress: async () => {
-          setIsLoggingOut(true);
-          try {
-            await logout();
-          } catch (error) {
-            Alert.alert('错误', '登出失败，请重试');
-          } finally {
-            setIsLoggingOut(false);
-          }
-        },
+    showConfirm(
+      '确认登出',
+      '确定要退出登录吗？',
+      async () => {
+        setIsLoggingOut(true);
+        try {
+          await logout();
+        } catch (error) {
+          showError('登出失败，请重试');
+        } finally {
+          setIsLoggingOut(false);
+        }
       },
-    ]);
+    );
   };
 
   /**
    * 清空聊天历史
    */
   const handleClearHistory = () => {
-    Alert.alert(
+    showConfirm(
       '确认清空',
       '确定要清空所有聊天历史吗？此操作不可恢复。',
-      [
-        {text: '取消', style: 'cancel'},
-        {
-          text: '清空',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await Storage.clearChatHistory();
-              Alert.alert('成功', '已清空所有历史记录');
-            } catch (error) {
-              Alert.alert('错误', '清空失败，请重试');
-            }
-          },
-        },
-      ],
+      async () => {
+        try {
+          await Storage.clearChatHistory();
+          showSuccess('已清空所有历史记录');
+        } catch (error) {
+          showError('清空失败，请重试');
+        }
+      },
     );
   };
 
@@ -70,9 +61,9 @@ export const ProfileScreen: React.FC = () => {
    * 关于应用
    */
   const handleAbout = () => {
-    Alert.alert(
-      '关于应用',
+    showInfo(
       'QuickQue 问答系统\n版本: 1.0.0\n\n基于检索增强生成技术，为您提供智能问答服务。',
+      '关于应用',
     );
   };
 
@@ -117,7 +108,7 @@ export const ProfileScreen: React.FC = () => {
   return (
     <ScrollView style={styles.container}>
       {/* 用户信息卡片 */}
-      <View style={[styles.userCard, {backgroundColor: cardColor}]}>
+      <View style={styles.userCard}>
         <View style={[styles.avatar, {backgroundColor: Colors.primary}]}>
           <Text style={styles.avatarText}>
             {user?.username?.charAt(0).toUpperCase() || 'U'}
@@ -132,22 +123,22 @@ export const ProfileScreen: React.FC = () => {
       </View>
 
       {/* 功能菜单 */}
-      <View style={[styles.menuSection, {backgroundColor: cardColor}]}>
+      <View style={styles.menuSection}>
         <Text style={[styles.sectionTitle, {color: textSecondary}]}>
           数据管理
         </Text>
         <MenuItem
-          icon="history"
+          icon="schedule"
           title="清空聊天历史"
           onPress={handleClearHistory}
         />
       </View>
 
-      <View style={[styles.menuSection, {backgroundColor: cardColor}]}>
+      <View style={styles.menuSection}>
         <Text style={[styles.sectionTitle, {color: textSecondary}]}>
           关于
         </Text>
-        <MenuItem icon="info-outline" title="关于应用" onPress={handleAbout} />
+        <MenuItem icon="info" title="关于应用" onPress={handleAbout} />
       </View>
 
       {/* 登出按钮 */}
@@ -193,25 +184,24 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   avatarText: {
-    color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
+    color: Colors.white,
+    fontSize: FontSizes.xxlarge,
   },
   username: {
-    fontSize: FontSizes.xlarge,
-    fontWeight: '600',
+    fontSize: FontSizes.xxlarge,
+    // fontWeight: '600',
     marginBottom: Spacing.xs,
   },
   userRole: {
-    fontSize: FontSizes.medium,
+    fontSize: FontSizes.small,
   },
   menuSection: {
     marginBottom: Spacing.md,
     paddingVertical: Spacing.xs,
   },
   sectionTitle: {
-    fontSize: FontSizes.small,
-    fontWeight: '600',
+    fontSize: FontSizes.large,
+    fontWeight: '500',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     textTransform: 'uppercase',

@@ -1,4 +1,4 @@
-import React, {useState, useRef, useEffect} from 'react';
+import React, {useState, useRef, useEffect, useCallback} from 'react';
 import {
   View,
   FlatList,
@@ -11,6 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useRoute, RouteProp, useFocusEffect} from '@react-navigation/native';
 import {MessageBubble} from '../components/MessageBubble';
 import {ChatInput} from '../components/ChatInput';
 import {Message} from '../types';
@@ -18,54 +19,148 @@ import {ChatService} from '../services/chatService';
 import {Colors, Spacing} from '../config';
 import {Storage} from '../utils/storage';
 import {useHeaderContext} from '../contexts/HeaderContext';
+import {MainStackParamList} from '../navigation/AppNavigator';
+
+type ChatScreenRouteProp = RouteProp<MainStackParamList, 'Chat'>;
 
 export const ChatScreen: React.FC = () => {
+  const route = useRoute<ChatScreenRouteProp>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const isDark = useColorScheme() === 'dark';
   const currentStreamingMessageId = useRef<string | null>(null);
+  const isLoadingRef = useRef(false); // 使用 ref 来避免闭包问题
+  const currentSessionId = useRef<string | null>(null); // 当前会话ID
+  const hasHandledCreateNew = useRef(false); // 标记是否已处理过 createNew
   const insets = useSafeAreaInsets();
   
   // 滚动相关状态
   const scrollY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const scrollDirection = useRef<'up' | 'down' | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {headerOpacity} = useHeaderContext();
   const inputTranslateY = useRef(new Animated.Value(0)).current;
 
-  // 加载历史消息
-  useEffect(() => {
-    loadHistory();
+  // 滚动到底部的辅助函数
+  const scrollToEnd = useCallback((delay: number = 100) => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({animated: true});
+    }, delay);
   }, []);
 
-  // 监听键盘事件（Android）
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      const keyboardWillShowListener = Keyboard.addListener(
-        'keyboardDidShow',
-        (e) => {
-          setKeyboardHeight(e.endCoordinates.height);
-          // 键盘弹起时滚动到底部
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({animated: true});
-          }, 100);
-        }
-      );
-      const keyboardWillHideListener = Keyboard.addListener(
-        'keyboardDidHide',
-        () => {
-          setKeyboardHeight(0);
-        }
-      );
+  /**
+   * 加载聊天历史
+   */
+  const loadHistory = useCallback(async (createNew: boolean = false, sessionId?: string) => {
+    try {
+      if (createNew) {
+        // 新建对话，清空消息
+        setMessages([]);
+        currentSessionId.current = null;
+        return;
+      }
 
-      return () => {
-        keyboardWillShowListener.remove();
-        keyboardWillHideListener.remove();
-      };
+      const sessions = await Storage.getChatHistory();
+      
+      // 如果指定了 sessionId，加载该会话
+      if (sessionId) {
+        const targetSession = sessions.find(s => s.id === sessionId);
+        if (targetSession) {
+          setMessages(targetSession.messages);
+          currentSessionId.current = targetSession.id;
+          return;
+        }
+        // 如果找不到指定的会话，则清空消息
+        setMessages([]);
+        currentSessionId.current = null;
+        return;
+      }
+      
+      // 未指定 sessionId，加载最新的会话
+      if (sessions.length > 0) {
+        const latestSession = sessions[sessions.length - 1];
+        setMessages(latestSession.messages);
+        currentSessionId.current = latestSession.id;
+      } else {
+        currentSessionId.current = null;
+      }
+    } catch (error) {
+      console.error('加载历史失败:', error);
     }
   }, []);
+
+  // 监听路由参数，处理新建对话或加载特定会话
+  useEffect(() => {
+    const createNew = route.params?.createNew ?? false;
+    const sessionId = route.params?.sessionId;
+
+    if (createNew) {
+      // 新建对话，清空消息，创建新会话ID
+      // 无论 hasHandledCreateNew 的状态如何，都要执行新建
+      const newSessionId = `session_${Date.now()}`;
+      setMessages([]);
+      currentSessionId.current = newSessionId;
+      hasHandledCreateNew.current = true;
+    } else if (sessionId && currentSessionId.current !== sessionId) {
+      // 加载指定的会话
+      loadHistory(false, sessionId);
+      hasHandledCreateNew.current = false; // 加载会话时重置标志
+    } else if (!createNew && !sessionId) {
+      // 既不是新建也不是加载特定会话，重置标志
+      hasHandledCreateNew.current = false;
+    }
+  }, [route.params?.createNew, route.params?.sessionId, loadHistory]);
+
+  // 首次加载时加载历史
+  useFocusEffect(
+    useCallback(() => {
+      // 仅在消息为空且不是新建对话且没有指定 sessionId 时加载最新历史
+      const sessionId = route.params?.sessionId;
+      const createNew = route.params?.createNew ?? false;
+      if (messages.length === 0 && !currentSessionId.current && !createNew && !sessionId) {
+        loadHistory(false);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route.params?.sessionId, route.params?.createNew])
+  );
+
+  // 监听键盘事件
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    
+    const keyboardWillShowListener = Keyboard.addListener(
+      showEvent,
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+        // 键盘弹起时确保输入框位置重置为 0，避免闪烁
+        Animated.timing(inputTranslateY, {
+          toValue: 0,
+          duration: 0, // 立即重置，避免动画
+          useNativeDriver: true,
+        }).start();
+        // 键盘弹起时滚动到底部
+        scrollToEnd(100);
+      }
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      hideEvent,
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, [scrollToEnd]);
 
   // 清理滚动定时器
   useEffect(() => {
@@ -79,63 +174,71 @@ export const ChatScreen: React.FC = () => {
   // 自动滚动到底部
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({animated: true});
-      }, 100);
+      scrollToEnd(100);
     }
-  }, [messages.length]);
-
-  /**
-   * 加载聊天历史
-   */
-  const loadHistory = async () => {
-    try {
-      const sessions = await Storage.getChatHistory();
-      if (sessions.length > 0) {
-        // 加载最新的会话
-        const latestSession = sessions[sessions.length - 1];
-        setMessages(latestSession.messages);
-      }
-    } catch (error) {
-      console.error('加载历史失败:', error);
-    }
-  };
+  }, [messages.length, scrollToEnd]);
 
   /**
    * 保存聊天历史
    */
-  const saveHistory = async (updatedMessages: Message[]) => {
+  const saveHistory = useCallback(async (updatedMessages: Message[]) => {
     try {
       const sessions = await Storage.getChatHistory();
       const now = Date.now();
       
-      if (sessions.length === 0) {
-        // 创建新会话
-        sessions.push({
-          id: `session_${now}`,
-          title: updatedMessages[0]?.content.substring(0, 30) || '新对话',
-          messages: updatedMessages,
-          createdAt: now,
-          updatedAt: now,
-        });
-      } else {
-        // 更新最新会话
-        const latestSession = sessions[sessions.length - 1];
-        latestSession.messages = updatedMessages;
-        latestSession.updatedAt = now;
+      // 如果有当前会话ID，尝试更新该会话
+      if (currentSessionId.current) {
+        const existingSessionIndex = sessions.findIndex(
+          s => s.id === currentSessionId.current
+        );
+        
+        if (existingSessionIndex !== -1) {
+          // 更新现有会话
+          const session = sessions[existingSessionIndex];
+          session.messages = updatedMessages;
+          session.updatedAt = now;
+          // 更新标题（使用第一条用户消息）
+          const firstUserMessage = updatedMessages.find(m => m.role === 'user');
+          if (firstUserMessage) {
+            session.title = firstUserMessage.content.substring(0, 30) || '新对话';
+          }
+          await Storage.saveChatHistory(sessions);
+          return;
+        }
       }
       
+      // 没有当前会话或找不到现有会话，创建新会话
+      // 如果已有会话ID（新建对话时创建），则使用它，否则生成新的
+      const newSessionId = currentSessionId.current || `session_${now}`;
+      const firstUserMessage = updatedMessages.find(m => m.role === 'user');
+      const newSession = {
+        id: newSessionId,
+        title: firstUserMessage?.content.substring(0, 30) || '新对话',
+        messages: updatedMessages,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      sessions.push(newSession);
+      currentSessionId.current = newSessionId;
       await Storage.saveChatHistory(sessions);
     } catch (error) {
       console.error('保存历史失败:', error);
     }
-  };
+  }, []);
 
   /**
    * 发送消息
    */
-  const handleSend = async (content: string) => {
-    if (isLoading) return;
+  const handleSend = useCallback(async (content: string) => {
+    // 使用 ref 来检查加载状态，避免闭包问题
+    if (isLoadingRef.current) {
+      console.log('正在加载中，忽略重复请求');
+      return;
+    }
+
+    isLoadingRef.current = true;
+    setIsLoading(true);
 
     // 添加用户消息
     const userMessage: Message = {
@@ -145,9 +248,7 @@ export const ChatScreen: React.FC = () => {
       timestamp: Date.now(),
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    setIsLoading(true);
+    setMessages(prev => [...prev, userMessage]);
 
     // 创建 AI 消息占位符
     const aiMessageId = `ai_${Date.now()}`;
@@ -190,6 +291,7 @@ export const ChatScreen: React.FC = () => {
             }
             return updated;
           });
+          isLoadingRef.current = false;
           setIsLoading(false);
           currentStreamingMessageId.current = null;
         },
@@ -206,28 +308,25 @@ export const ChatScreen: React.FC = () => {
             });
             return updated;
           });
+          isLoadingRef.current = false;
           setIsLoading(false);
           currentStreamingMessageId.current = null;
         },
       );
     } catch (error: any) {
       console.error('发送消息失败:', error);
+      // 确保错误时也重置状态
+      setMessages(prev => {
+        const updated = prev.filter(m => m.id !== aiMessageId);
+        return updated;
+      });
+      isLoadingRef.current = false;
       setIsLoading(false);
       currentStreamingMessageId.current = null;
     }
-  };
-
-  const containerStyle = [
-    styles.container,
-    {backgroundColor: isDark ? Colors.backgroundDark : Colors.background},
-    Platform.OS === 'android' && keyboardHeight > 0 && {
-      paddingBottom: keyboardHeight + insets.bottom,
-    },
-  ];
+  }, [saveHistory]);
 
   // 处理滚动事件
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
   const handleScroll = Animated.event(
     [{nativeEvent: {contentOffset: {y: scrollY}}}],
     {
@@ -242,21 +341,27 @@ export const ChatScreen: React.FC = () => {
           clearTimeout(scrollTimeoutRef.current);
         }
 
-        // 如果滚动停止，显示两者
+        // 如果滚动停止，显示两者（仅在键盘未显示时重置输入框位置）
         scrollTimeoutRef.current = setTimeout(() => {
           scrollDirection.current = null;
-          Animated.parallel([
+          const animations = [
             Animated.timing(headerOpacity, {
               toValue: 1,
               duration: 200,
               useNativeDriver: true,
             }),
-            Animated.timing(inputTranslateY, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]).start();
+          ];
+          // 只有在键盘未显示时才重置输入框位置
+          if (!isKeyboardVisible) {
+            animations.push(
+              Animated.timing(inputTranslateY, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              })
+            );
+          }
+          Animated.parallel(animations).start();
         }, 150);
 
         if (Math.abs(deltaY) > scrollThreshold) {
@@ -271,8 +376,8 @@ export const ChatScreen: React.FC = () => {
               }).start();
             }
           } else if (deltaY < 0) {
-            // 向上滚动 - 隐藏底部输入框
-            if (scrollDirection.current !== 'up') {
+            // 向上滚动 - 隐藏底部输入框（仅在键盘未显示时）
+            if (scrollDirection.current !== 'up' && !isKeyboardVisible) {
               scrollDirection.current = 'up';
               Animated.timing(inputTranslateY, {
                 toValue: 150,
@@ -283,20 +388,26 @@ export const ChatScreen: React.FC = () => {
           }
         }
 
-        // 接近顶部时显示两者
+        // 接近顶部时显示两者（仅在键盘未显示时重置输入框位置）
         if (currentScrollY < 20) {
-          Animated.parallel([
+          const animations = [
             Animated.timing(headerOpacity, {
               toValue: 1,
               duration: 200,
               useNativeDriver: true,
             }),
-            Animated.timing(inputTranslateY, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]).start();
+          ];
+          // 只有在键盘未显示时才重置输入框位置
+          if (!isKeyboardVisible) {
+            animations.push(
+              Animated.timing(inputTranslateY, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              })
+            );
+          }
+          Animated.parallel(animations).start();
           scrollDirection.current = null;
         }
 
@@ -308,10 +419,24 @@ export const ChatScreen: React.FC = () => {
   // 计算 header 高度（包含安全区域）
   const headerHeight = insets.top + 60; // 安全区域 + header 内容高度
 
+  const containerStyle = [
+    styles.container,
+    {backgroundColor: isDark ? Colors.backgroundDark : Colors.background},
+    Platform.OS === 'android' && keyboardHeight > 0 && {
+      paddingBottom: insets.bottom,
+    },
+  ];
+
   const content = (
     <>
       {messages.length === 0 ? (
-        <View style={[styles.emptyContainer, {paddingTop: headerHeight}]}>
+        <View style={[
+          styles.emptyContainer, 
+          {
+            paddingTop: headerHeight,
+            backgroundColor: isDark ? Colors.backgroundDark : Colors.background,
+          }
+        ]}>
           <Text style={[styles.emptyText, {color: isDark ? Colors.textSecondaryDark : Colors.textSecondary}]}>
             👋 Hello! I am QuickQue assistant
           </Text>
@@ -337,8 +462,9 @@ export const ChatScreen: React.FC = () => {
           onScroll={handleScroll}
           scrollEventThrottle={16}
           onContentSizeChange={() => {
-            flatListRef.current?.scrollToEnd({animated: true});
+            scrollToEnd(0);
           }}
+          keyboardShouldPersistTaps="handled"
         />
       )}
       <Animated.View
@@ -354,18 +480,16 @@ export const ChatScreen: React.FC = () => {
     </>
   );
 
-  if (Platform.OS === 'ios') {
-    return (
-      <KeyboardAvoidingView
-        behavior="padding"
-        style={containerStyle}
-        keyboardVerticalOffset={insets.top}>
-        {content}
-      </KeyboardAvoidingView>
-    );
-  }
-
-  return <View style={containerStyle}>{content}</View>;
+  // 统一使用 KeyboardAvoidingView，虽然 ChatInput 是绝对定位，但可以保持一致性
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={containerStyle}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+      enabled={Platform.OS === 'ios'}>
+      {content}
+    </KeyboardAvoidingView>
+  );
 };
 
 const styles = StyleSheet.create({

@@ -7,11 +7,11 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   useColorScheme,
   ScrollView,
 } from 'react-native';
 import {useAuth} from '../contexts/AuthContext';
+import {useAlert} from '../contexts/AlertContext';
 import {Colors, Spacing, FontSizes} from '../config';
 import { Logo } from '../asserts/logo';
 
@@ -21,11 +21,12 @@ export const LoginScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showLoginForm, setShowLoginForm] = useState(false);
   const {login} = useAuth();
+  const {showInfo, showError} = useAlert();
   const isDark = useColorScheme() === 'dark';
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
-      Alert.alert('提示', '请输入用户名和密码');
+      showInfo('请输入用户名和密码');
       return;
     }
 
@@ -34,7 +35,7 @@ export const LoginScreen: React.FC = () => {
       await login(username.trim(), password);
       // 登录成功后，AuthContext 会自动处理导航
     } catch (error: any) {
-      Alert.alert('登录失败', error.message || '请检查用户名和密码');
+      showError(error.message || '请检查用户名和密码', '登录失败');
     } finally {
       setIsLoading(false);
     }

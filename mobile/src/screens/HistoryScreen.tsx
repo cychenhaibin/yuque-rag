@@ -5,19 +5,25 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   useColorScheme,
   RefreshControl,
 } from 'react-native';
-import {useFocusEffect} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
+import {StackNavigationProp} from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import {ChatSession} from '../types';
 import {Storage} from '../utils/storage';
+import {useAlert} from '../contexts/AlertContext';
 import {Colors, Spacing, FontSizes} from '../config';
+import {MainStackParamList} from '../navigation/AppNavigator';
+
+type HistoryScreenNavigationProp = StackNavigationProp<MainStackParamList, 'History'>;
 
 export const HistoryScreen: React.FC = () => {
+  const navigation = useNavigation<HistoryScreenNavigationProp>();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const {showConfirm, showError, showSuccess} = useAlert();
   const isDark = useColorScheme() === 'dark';
 
   // 页面聚焦时加载历史
@@ -53,25 +59,18 @@ export const HistoryScreen: React.FC = () => {
    * 清空所有历史
    */
   const handleClearAll = () => {
-    Alert.alert(
+    showConfirm(
       '确认清空',
       '确定要清空所有聊天历史吗？此操作不可恢复。',
-      [
-        {text: '取消', style: 'cancel'},
-        {
-          text: '清空',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await Storage.clearChatHistory();
-              setSessions([]);
-              Alert.alert('成功', '已清空所有历史记录');
-            } catch (error) {
-              Alert.alert('错误', '清空失败，请重试');
-            }
-          },
-        },
-      ],
+      async () => {
+        try {
+          await Storage.clearChatHistory();
+          setSessions([]);
+          showSuccess('已清空所有历史记录');
+        } catch (error) {
+          showError('清空失败，请重试');
+        }
+      },
     );
   };
 
@@ -79,22 +78,26 @@ export const HistoryScreen: React.FC = () => {
    * 删除单个会话
    */
   const handleDeleteSession = (sessionId: string) => {
-    Alert.alert('确认删除', '确定要删除这个对话吗？', [
-      {text: '取消', style: 'cancel'},
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const updated = sessions.filter(s => s.id !== sessionId);
-            await Storage.saveChatHistory(updated.reverse());
-            setSessions(updated);
-          } catch (error) {
-            Alert.alert('错误', '删除失败，请重试');
-          }
-        },
+    showConfirm(
+      '确认删除',
+      '确定要删除这个对话吗？',
+      async () => {
+        try {
+          const updated = sessions.filter(s => s.id !== sessionId);
+          await Storage.saveChatHistory(updated.reverse());
+          setSessions(updated);
+        } catch (error) {
+          showError('删除失败，请重试');
+        }
       },
-    ]);
+    );
+  };
+
+  /**
+   * 点击会话项，进入查看
+   */
+  const handleSessionPress = (sessionId: string) => {
+    navigation.navigate('Chat', {sessionId});
   };
 
   /**
@@ -137,7 +140,10 @@ export const HistoryScreen: React.FC = () => {
             borderBottomColor: isDark ? Colors.borderDark : Colors.border,
           },
         ]}>
-        <View style={styles.sessionContent}>
+        <TouchableOpacity
+          style={styles.sessionContent}
+          onPress={() => handleSessionPress(item.id)}
+          activeOpacity={0.7}>
           <View style={styles.sessionHeader}>
             <Text
               style={[
@@ -172,10 +178,11 @@ export const HistoryScreen: React.FC = () => {
             ]}>
             {messageCount} 条消息
           </Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDeleteSession(item.id)}>
+          onPress={() => handleDeleteSession(item.id)}
+          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
           <Icon
             name="delete-outline"
             size={24}
@@ -252,17 +259,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
+    borderTopLeftRadius: Spacing.base,
+    borderTopRightRadius: Spacing.base,
+    marginHorizontal: Spacing.base,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5,
   },
   headerTitle: {
-    fontSize: FontSizes.xlarge,
+    fontSize: FontSizes.large,
     fontWeight: '600',
   },
   clearButton: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
+    // paddingHorizontal: Spacing.sm,
+    // paddingVertical: Spacing.xs,
   },
   clearButtonText: {
     fontSize: FontSizes.medium,
@@ -270,9 +280,12 @@ const styles = StyleSheet.create({
   },
   sessionItem: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
+    marginHorizontal: Spacing.base,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Spacing.base,
+    borderBottomWidth: 0.5,
+    borderBottomLeftRadius: Spacing.base,
+    borderBottomRightRadius: Spacing.base,
   },
   sessionContent: {
     flex: 1,
@@ -308,7 +321,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.xl,
+    padding: Spacing.base,
   },
   emptyText: {
     fontSize: FontSizes.large,

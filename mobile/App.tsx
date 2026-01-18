@@ -2,6 +2,7 @@ import React from 'react';
 import {StatusBar, useColorScheme} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {AuthProvider} from './src/contexts/AuthContext';
+import {AlertProvider} from './src/contexts/AlertContext';
 import {AppNavigator} from './src/navigation/AppNavigator';
 import {Colors} from './src/config';
 
@@ -15,9 +16,11 @@ function App() {
         translucent
         backgroundColor="transparent"
       />
-      <AuthProvider>
-        <AppNavigator />
-      </AuthProvider>
+      <AlertProvider>
+        <AuthProvider>
+          <AppNavigator />
+        </AuthProvider>
+      </AlertProvider>
     </SafeAreaProvider>
   );
 }
