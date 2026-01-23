@@ -1,11 +1,33 @@
-import React, {useMemo} from 'react';
-import {View, Text, StyleSheet, useColorScheme, ViewStyle} from 'react-native';
+import React, {useMemo, useState} from 'react';
+import {View, Text, StyleSheet, useColorScheme, ViewStyle, TouchableOpacity, Alert, Platform} from 'react-native';
 import Markdown, {MarkdownIt, RenderRules, ASTNode} from 'react-native-markdown-display';
 // @ts-ignore - markdown-it-math 没有类型定义
 import MarkdownItMath from 'markdown-it-math';
 import MathJax from 'react-native-mathjax-svg';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import {Message} from '../types';
 import {Colors, Spacing, FontSizes} from '../config';
+
+// 安全导入 Clipboard
+let Clipboard: any;
+try {
+  // @ts-ignore
+  Clipboard = require('@react-native-clipboard/clipboard').default;
+} catch (e) {
+  // 如果导入失败，使用备用实现
+  Clipboard = {
+    setString: async (text: string) => {
+      // 备用实现：使用 React Native 的 Clipboard API（如果可用）
+      if (Platform.OS === 'ios' || Platform.OS === 'android') {
+        const {Clipboard: RNClipboard} = require('react-native');
+        if (RNClipboard && RNClipboard.setString) {
+          return RNClipboard.setString(text);
+        }
+      }
+      throw new Error('Clipboard not available');
+    },
+  };
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -14,6 +36,7 @@ interface MessageBubbleProps {
 export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
   const isDark = useColorScheme() === 'dark';
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
 
   const bubbleColor = isUser
     ? Colors.userBubble
@@ -22,6 +45,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
     : Colors.aiBubble;
 
   const textColor = isUser ? '#fff' : isDark ? Colors.textDark : Colors.text;
+
+  // 复制消息内容到剪贴板
+  const handleCopy = async () => {
+    try {
+      await Clipboard.setString(message.content);
+      setCopied(true);
+      // 2秒后恢复图标状态
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch (error) {
+      Alert.alert('复制失败', '无法复制到剪贴板');
+    }
+  };
 
   // 创建支持数学公式的 markdown-it 实例
   const markdownItInstance = useMemo(() => {
@@ -117,6 +154,26 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
             <Text style={[styles.streamingText, {color: textColor}]}>●</Text>
           </View>
         )}
+        {/* AI回答的操作按钮 */}
+        {!isUser && (
+          <View style={[
+            styles.actionButtons,
+            {
+              backgroundColor: isDark ? Colors.primaryBrightDark : Colors.primaryBright,
+            },
+          ]}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleCopy}
+              activeOpacity={0.7}>
+              <Icon
+                name={copied ? 'check' : 'content-copy'}
+                size={12}
+                color={Colors.primary}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
       <Text
         style={[
@@ -172,6 +229,17 @@ const styles = StyleSheet.create({
   equationBlock: {
     width: '100%',
     marginVertical: Spacing.xs,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  actionButton: {
+    padding: Spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

@@ -893,7 +893,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               value={message}
               onChangeText={setMessage}
               multiline
-              maxLength={500}
+              scrollEnabled={true}
               editable={!disabled}
               onSubmitEditing={handleSend}
               blurOnSubmit={false}

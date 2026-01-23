@@ -26,6 +26,9 @@ export const Config = {
 export const Colors = {
   white: '#ffffff',
   primary: '#ee4d2d',
+  // 主题色浅一点，用于按钮背景色
+  primaryBright: 'rgba(255, 123, 90, 0.1)',
+  primaryBrightDark: 'rgba(196, 77, 32, 0.1)',
   primaryDark: '#c43d20',
   primaryLight: '#ff6b4a',
 
