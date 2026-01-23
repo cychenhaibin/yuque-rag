@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {View, Text, StyleSheet, useColorScheme, ViewStyle, TouchableOpacity, Alert, Platform} from 'react-native';
+import {View, Text, StyleSheet, useColorScheme, ViewStyle, TouchableOpacity, Alert, Platform, Linking} from 'react-native';
 import Markdown, {MarkdownIt, RenderRules, ASTNode} from 'react-native-markdown-display';
 // @ts-ignore - markdown-it-math 没有类型定义
 import MarkdownItMath from 'markdown-it-math';
@@ -174,6 +174,55 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
             </TouchableOpacity>
           </View>
         )}
+        {/* 来源信息 */}
+        {!isUser && message.sources && message.sources.length > 0 && (
+          <View style={styles.sourcesContainer}>
+            <View style={[
+              styles.divider,
+              {backgroundColor: isDark ? Colors.borderDark : Colors.border},
+            ]} />
+            {message.sources.map((source, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.sourceItem}
+                onPress={() => {
+                  if (source.url) {
+                    Linking.openURL(source.url).catch(err => {
+                      Alert.alert('打开链接失败', err.message);
+                    });
+                  }
+                }}
+                disabled={!source.url}
+                activeOpacity={source.url ? 0.7 : 1}>
+                <Icon
+                  name={source.type === 'knowledge_base' ? 'book' : 'language'}
+                  size={14}
+                  color={isDark ? Colors.textSecondaryDark : Colors.textSecondary}
+                  style={styles.sourceIcon}
+                />
+                <View style={styles.sourceContent}>
+                  <Text
+                    style={[
+                      styles.sourceTitle,
+                      {color: isDark ? Colors.textSecondaryDark : Colors.textSecondary},
+                      source.url && styles.sourceLink,
+                    ]}>
+                    {source.title}
+                  </Text>
+                  {source.repo && (
+                    <Text
+                      style={[
+                        styles.sourceRepo,
+                        {color: isDark ? Colors.textSecondaryDark : Colors.textSecondary},
+                      ]}>
+                      {source.repo}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
       <Text
         style={[
@@ -240,6 +289,39 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sourcesContainer: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+  },
+  divider: {
+    height: 1,
+    marginBottom: Spacing.sm,
+  },
+  sourceItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.xs,
+    paddingVertical: Spacing.xs / 2,
+  },
+  sourceIcon: {
+    marginRight: Spacing.xs,
+    marginTop: 2,
+  },
+  sourceContent: {
+    flex: 1,
+  },
+  sourceTitle: {
+    fontSize: FontSizes.small,
+    lineHeight: 18,
+  },
+  sourceLink: {
+    textDecorationLine: 'underline',
+  },
+  sourceRepo: {
+    fontSize: FontSizes.small - 1,
+    marginTop: 2,
+    opacity: 0.8,
   },
 });
 

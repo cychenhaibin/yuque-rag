@@ -14,7 +14,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useRoute, RouteProp, useFocusEffect} from '@react-navigation/native';
 import {MessageBubble} from '../components/MessageBubble';
 import {ChatInput} from '../components/ChatInput';
-import {Message} from '../types';
+import {Message, Source} from '../types';
 import {ChatService} from '../services/chatService';
 import {Colors, Spacing} from '../config';
 import {Storage} from '../utils/storage';
@@ -73,6 +73,10 @@ export const ChatScreen: React.FC = () => {
         if (targetSession) {
           setMessages(targetSession.messages);
           currentSessionId.current = targetSession.id;
+          // 加载完成后滚动到底部
+          setTimeout(() => {
+            scrollToEnd(200);
+          }, 300);
           return;
         }
         // 如果找不到指定的会话，则清空消息
@@ -86,13 +90,17 @@ export const ChatScreen: React.FC = () => {
         const latestSession = sessions[sessions.length - 1];
         setMessages(latestSession.messages);
         currentSessionId.current = latestSession.id;
+        // 加载完成后滚动到底部
+        setTimeout(() => {
+          scrollToEnd(200);
+        }, 300);
       } else {
         currentSessionId.current = null;
       }
     } catch (error) {
       console.error('加载历史失败:', error);
     }
-  }, []);
+  }, [scrollToEnd]);
 
   // 监听路由参数，处理新建对话或加载特定会话
   useEffect(() => {
@@ -128,6 +136,17 @@ export const ChatScreen: React.FC = () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [route.params?.sessionId, route.params?.createNew])
   );
+
+  // 当消息加载完成后，自动滚动到底部（用于初始化）
+  useEffect(() => {
+    if (messages.length > 0 && !isLoading) {
+      // 延迟滚动，确保 FlatList 已完全渲染
+      const timer = setTimeout(() => {
+        scrollToEnd(300);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, isLoading, scrollToEnd]);
 
   // 监听键盘事件
   useEffect(() => {
@@ -189,10 +208,11 @@ export const ChatScreen: React.FC = () => {
     };
   }, []);
 
-  // 自动滚动到底部
+  // 自动滚动到底部（当消息数量变化时）
   useEffect(() => {
     if (messages.length > 0) {
-      scrollToEnd(100);
+      // 延迟滚动，确保内容已渲染完成
+      scrollToEnd(300);
     }
   }, [messages.length, scrollToEnd]);
 
@@ -298,12 +318,16 @@ export const ChatScreen: React.FC = () => {
           });
         },
         // onComplete - 完成
-        () => {
+        (sources?: Source[]) => {
           setMessages(prev => {
             const updated = [...prev];
             const lastMessage = updated[updated.length - 1];
             if (lastMessage && lastMessage.id === aiMessageId) {
               lastMessage.isStreaming = false;
+              // 保存来源信息
+              if (sources && sources.length > 0) {
+                lastMessage.sources = sources;
+              }
               // 保存历史
               saveHistory(updated);
             }
@@ -312,6 +336,8 @@ export const ChatScreen: React.FC = () => {
           isLoadingRef.current = false;
           setIsLoading(false);
           currentStreamingMessageId.current = null;
+          // 回答完成后自动滚动到底部，确保内容完全可见
+          scrollToEnd(200);
         },
         // onError - 错误
         (error: string) => {
@@ -475,12 +501,20 @@ export const ChatScreen: React.FC = () => {
               paddingBottom: insets.bottom + 100,
             },
           ]}
-          style={{backgroundColor: isDark ? Colors.backgroundDark : Colors.background}}
+          // style={{backgroundColor: isDark ? Colors.backgroundDark : Colors.background}}
+          style={{paddingBottom: insets.bottom + 100}}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           onContentSizeChange={() => {
-            scrollToEnd(0);
+            // 当内容大小变化时自动滚动到底部
+            scrollToEnd(150);
+          }}
+          onLayout={() => {
+            // 当布局变化时也滚动到底部，确保内容可见
+            if (messages.length > 0) {
+              scrollToEnd(200);
+            }
           }}
           keyboardShouldPersistTaps="handled"
         />

@@ -6,11 +6,15 @@ from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from app import initialize_retriever_and_llm
 import json
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List, Dict
 from auth.auth import AuthService, get_current_user, user_manager
+from tools.web_search import WebSearchTool
 
 # 初始化 RAG 模型
 retriever, llm = initialize_retriever_and_llm()
+
+# 初始化网络搜索工具
+web_search_tool = WebSearchTool(max_results=5)
 
 # 创建 FastAPI 应用，配置 Swagger 文档
 app = FastAPI(
@@ -75,6 +79,23 @@ class QueryRequest(BaseModel):
         description="用户提出的问题",
         example="四月语雀有哪些更新？"
     )
+    use_web_search: bool = Field(
+        False,
+        description="是否使用互联网搜索",
+        example=False
+    )
+    use_hybrid: bool = Field(
+        False,
+        description="是否混合搜索（知识库+互联网）",
+        example=False
+    )
+
+class SourceItem(BaseModel):
+    """来源项模型"""
+    type: str = Field(..., description="来源类型", example="knowledge_base")
+    title: str = Field(..., description="标题", example="语雀更新日志")
+    url: Optional[str] = Field(None, description="URL（互联网搜索时使用）")
+    repo: Optional[str] = Field(None, description="知识库名称（知识库检索时使用）")
 
 class ChatResponse(BaseModel):
     """问答响应模型"""
@@ -82,6 +103,13 @@ class ChatResponse(BaseModel):
         ..., 
         description="系统生成的回答",
         example="四月语雀的更新包括新增了团队协作功能，优化了文档编辑体验，以及增强了安全策略。"
+    )
+    sources: Optional[List[SourceItem]] = Field(
+        None,
+        description="答案来源列表",
+        example=[
+            {"type": "knowledge_base", "title": "语雀更新日志", "repo": "产品文档"}
+        ]
     )
 
 class HealthResponse(BaseModel):
@@ -248,14 +276,111 @@ def chat(req: QueryRequest, current_user: str = Depends(get_current_user)):
     """
     query = req.question.strip()
     if not query:
-        return {"answer": "❗请输入问题"}
+        return {"answer": "❗请输入问题", "sources": []}
 
-    relevant_docs = retriever.invoke(query)
-    context = "\n\n".join([doc.page_content for doc in relevant_docs])
-    prompt = f"根据以下内容回答问题：\n\n{context}\n\n问题：{query}\n\n回答："
+    sources: List[Dict[str, str]] = []
+    
+    # 根据参数决定搜索模式
+    if req.use_web_search:
+        # 纯互联网搜索模式
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            web_results = list(ddgs.text(query, max_results=5))
+        
+        # 收集互联网搜索来源
+        for result in web_results:
+            sources.append({
+                "type": "web_search",
+                "title": result.get('title', '未知标题'),
+                "url": result.get('href', '')
+            })
+        
+        # 格式化搜索结果
+        web_context = f"🔍 互联网搜索结果（共 {len(web_results)} 条）：\n\n"
+        for i, result in enumerate(web_results, 1):
+            web_context += f"【{i}】{result['title']}\n"
+            web_context += f"📄 {result['body']}\n"
+            web_context += f"🔗 来源: {result['href']}\n\n"
+        
+        context = web_context
+        prompt = f"根据以下互联网搜索结果回答问题：\n\n{context}\n\n问题：{query}\n\n请用中文简洁地总结回答："
+        
+    elif req.use_hybrid:
+        # 混合搜索模式（知识库 + 互联网）
+        # 检索知识库
+        relevant_docs = retriever.invoke(query)
+        kb_context = "\n\n".join([doc.page_content for doc in relevant_docs])
+        
+        # 收集知识库来源
+        seen_titles = set()
+        for doc in relevant_docs:
+            title = doc.metadata.get("title", "未知文档")
+            # 去重：同一标题只显示一次
+            if title not in seen_titles:
+                seen_titles.add(title)
+                sources.append({
+                    "type": "knowledge_base",
+                    "title": title,
+                    "repo": doc.metadata.get("repo", "未知知识库")
+                })
+        
+        # 互联网搜索
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            web_results = list(ddgs.text(query, max_results=5))
+        
+        # 收集互联网搜索来源
+        for result in web_results:
+            sources.append({
+                "type": "web_search",
+                "title": result.get('title', '未知标题'),
+                "url": result.get('href', '')
+            })
+        
+        # 格式化搜索结果
+        web_context = f"🔍 互联网搜索结果（共 {len(web_results)} 条）：\n\n"
+        for i, result in enumerate(web_results, 1):
+            web_context += f"【{i}】{result['title']}\n"
+            web_context += f"📄 {result['body']}\n"
+            web_context += f"🔗 来源: {result['href']}\n\n"
+        
+        # 合并两种来源
+        prompt = f"""请根据以下信息回答问题：
+
+【知识库内容】
+{kb_context}
+
+【互联网搜索结果】
+{web_context}
+
+问题：{query}
+
+请综合以上信息用中文回答："""
+        
+    else:
+        # 默认模式：知识库检索
+        relevant_docs = retriever.invoke(query)
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+        prompt = f"根据以下内容回答问题：\n\n{context}\n\n问题：{query}\n\n回答："
+        
+        # 收集知识库来源（去重）
+        seen_titles = set()
+        for doc in relevant_docs:
+            title = doc.metadata.get("title", "未知文档")
+            if title not in seen_titles:
+                seen_titles.add(title)
+                sources.append({
+                    "type": "knowledge_base",
+                    "title": title,
+                    "repo": doc.metadata.get("repo", "未知知识库")
+                })
+    
+    # 限制来源数量（最多5个）
+    sources = sources[:5]
+    
     answer = llm.generate(prompt)
 
-    return {"answer": answer}
+    return {"answer": answer, "sources": sources if sources else None}
 
 
 @app.post(
@@ -313,17 +438,114 @@ async def chat_stream(req: QueryRequest, current_user: str = Depends(get_current
             return
         
         try:
-            # 检索相关文档
-            relevant_docs = retriever.invoke(query)
-            context = "\n\n".join([doc.page_content for doc in relevant_docs])
-            prompt = f"根据以下内容回答问题：\n\n{context}\n\n问题：{query}\n\n回答："
+            sources: List[Dict[str, str]] = []
+            context = ""
+            prompt = ""
+            
+            # 根据参数决定搜索模式
+            if req.use_web_search:
+                # 纯互联网搜索模式
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    web_results = list(ddgs.text(query, max_results=5))
+                
+                # 收集互联网搜索来源
+                for result in web_results:
+                    sources.append({
+                        "type": "web_search",
+                        "title": result.get('title', '未知标题'),
+                        "url": result.get('href', '')
+                    })
+                
+                # 格式化搜索结果
+                web_context = f"🔍 互联网搜索结果（共 {len(web_results)} 条）：\n\n"
+                for i, result in enumerate(web_results, 1):
+                    web_context += f"【{i}】{result['title']}\n"
+                    web_context += f"📄 {result['body']}\n"
+                    web_context += f"🔗 来源: {result['href']}\n\n"
+                
+                context = web_context
+                prompt = f"根据以下互联网搜索结果回答问题：\n\n{context}\n\n问题：{query}\n\n请用中文简洁地总结回答："
+                
+            elif req.use_hybrid:
+                # 混合搜索模式（知识库 + 互联网）
+                # 检索知识库
+                relevant_docs = retriever.invoke(query)
+                kb_context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                
+                # 收集知识库来源
+                seen_titles = set()
+                for doc in relevant_docs:
+                    title = doc.metadata.get("title", "未知文档")
+                    # 去重：同一标题只显示一次
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        sources.append({
+                            "type": "knowledge_base",
+                            "title": title,
+                            "repo": doc.metadata.get("repo", "未知知识库")
+                        })
+                
+                # 互联网搜索
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    web_results = list(ddgs.text(query, max_results=5))
+                
+                # 收集互联网搜索来源
+                for result in web_results:
+                    sources.append({
+                        "type": "web_search",
+                        "title": result.get('title', '未知标题'),
+                        "url": result.get('href', '')
+                    })
+                
+                # 格式化搜索结果
+                web_context = f"🔍 互联网搜索结果（共 {len(web_results)} 条）：\n\n"
+                for i, result in enumerate(web_results, 1):
+                    web_context += f"【{i}】{result['title']}\n"
+                    web_context += f"📄 {result['body']}\n"
+                    web_context += f"🔗 来源: {result['href']}\n\n"
+                
+                # 合并两种来源
+                prompt = f"""请根据以下信息回答问题：
+
+【知识库内容】
+{kb_context}
+
+【互联网搜索结果】
+{web_context}
+
+问题：{query}
+
+请综合以上信息用中文回答："""
+                
+            else:
+                # 默认模式：知识库检索
+                relevant_docs = retriever.invoke(query)
+                context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                prompt = f"根据以下内容回答问题：\n\n{context}\n\n问题：{query}\n\n回答："
+                
+                # 收集知识库来源（去重）
+                seen_titles = set()
+                for doc in relevant_docs:
+                    title = doc.metadata.get("title", "未知文档")
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        sources.append({
+                            "type": "knowledge_base",
+                            "title": title,
+                            "repo": doc.metadata.get("repo", "未知知识库")
+                        })
+            
+            # 限制来源数量（最多5个）
+            sources = sources[:5]
             
             # 流式生成答案
             for chunk in llm.generate_stream(prompt):
                 yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
             
-            # 发送完成标记
-            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            # 发送完成标记和来源信息
+            yield f"data: {json.dumps({'done': True, 'sources': sources}, ensure_ascii=False)}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e), 'done': True}, ensure_ascii=False)}\n\n"
