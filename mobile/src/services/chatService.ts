@@ -21,6 +21,7 @@ export class ChatService {
 
   /**
    * 发送问题（流式返回）
+   * 使用 XMLHttpRequest 来处理流式响应，因为 React Native 的 fetch API 对 ReadableStream 支持有限
    * @param question 用户问题
    * @param onChunk 接收到数据块时的回调
    * @param onComplete 完成时的回调，接收 sources 参数
@@ -32,38 +33,141 @@ export class ChatService {
     onComplete: (sources?: Source[]) => void,
     onError: (error: string) => void,
   ): Promise<void> {
-    try {
-      // React Native 环境下对 ReadableStream 支持有限，
-      // 这里简化为一次性请求，然后通过 onChunk/onComplete 回调给前端，
-      // 这样可以复用已有的非流式接口，并避免“无法读取响应流”的错误。
-      const request: ChatRequest = {question};
-      const response = await apiClient.post<ChatResponse>('/chat', request);
-      
-      if (response.data.answer) {
-        // 模拟流式效果：逐字符输出
-        const answer = response.data.answer;
-        for (let i = 0; i < answer.length; i++) {
-          onChunk(answer[i]);
-          // 添加小延迟以模拟流式效果
-          await new Promise<void>(resolve => setTimeout(() => resolve(), 10));
+    return new Promise<void>((resolve, reject) => {
+      (async () => {
+        try {
+          console.log('[ChatStream] 开始流式请求, 问题:', question);
+          
+          const {Config} = await import('../config');
+          const {Storage} = await import('../utils/storage');
+          
+          const token = await Storage.getToken();
+          const url = `${Config.API_BASE_URL}/chat/stream`;
+          
+          
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, true);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          } else {
+            console.warn( '[ChatStream] 未找到认证 token');
+          }
+          
+          let buffer = '';
+          let lastProcessedLength = 0;
+          
+          // 使用 onreadystatechange 来处理流式数据
+          xhr.onreadystatechange = () => {
+            if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+              // 获取新的数据部分
+              const currentText = xhr.responseText;
+              const newData = currentText.substring(lastProcessedLength);
+              
+              if (newData) {
+                buffer += newData;
+                lastProcessedLength = currentText.length;
+                
+                // 按行处理新数据
+                const lines = buffer.split('\n');
+                // 保留最后一个不完整的行
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                  if (line.trim()) {
+                    const sseData = SSEParser.parseLine(line);
+                    if (sseData) {
+                      
+                      // 处理内容块
+                      if (sseData.content !== undefined) {
+                        onChunk(sseData.content);
+                      }
+                      
+                      // 处理完成标记
+                      if (sseData.done) {
+                        if (sseData.error) {
+                          console.error('[ChatStream] 错误:', sseData.error);
+                          onError(sseData.error);
+                          reject(new Error(sseData.error));
+                        } else {
+                          onComplete(sseData.sources);
+                          resolve();
+                        }
+                        return;
+                      }
+                      
+                      // 处理错误
+                      if (sseData.error) {
+                        console.error('[ChatStream] SSE 数据中包含错误:', sseData.error);
+                        onError(sseData.error);
+                        reject(new Error(sseData.error));
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+              console.log('[ChatStream] 请求完成, 状态码:', xhr.status);
+              
+              if (xhr.status === 200) {
+                // 处理缓冲区中剩余的数据
+                if (buffer.trim()) {
+                  console.log('[ChatStream] 处理缓冲区剩余数据:', buffer);
+                  const sseData = SSEParser.parseLine(buffer);
+                  if (sseData) {
+                    if (sseData.content !== undefined) {
+                      onChunk(sseData.content);
+                    }
+                    if (sseData.done) {
+                      if (sseData.error) {
+                        onError(sseData.error);
+                        reject(new Error(sseData.error));
+                      } else {
+                        onComplete(sseData.sources);
+                        resolve();
+                      }
+                      return;
+                    }
+                  }
+                }
+                // 如果没有收到 done 标记，也调用完成
+                onComplete();
+                resolve();
+              } else {
+                const errorMsg = `HTTP ${xhr.status}: ${xhr.statusText}`;
+                console.error('[ChatStream] 请求失败:', errorMsg);
+                onError(errorMsg);
+                reject(new Error(errorMsg));
+              }
+            }
+          };
+          
+          xhr.onerror = () => {
+            const errorMsg = '网络请求失败';
+            console.error('[ChatStream] 网络错误');
+            onError(errorMsg);
+            reject(new Error(errorMsg));
+          };
+          
+          xhr.ontimeout = () => {
+            const errorMsg = '请求超时';
+            console.error('[ChatStream] 请求超时');
+            onError(errorMsg);
+            reject(new Error(errorMsg));
+          };
+          
+          console.log('[ChatStream] 发送 POST 请求...');
+          xhr.send(JSON.stringify({question} as ChatRequest));
+        } catch (error: any) {
+          console.error('[ChatStream] 初始化失败:', error);
+          onError(APIClient.handleError(error));
+          reject(error);
         }
-      }
-
-      // 一次性输出整个答案（非流式）
-
-      // const request: ChatRequest = {question};
-      // const response = await apiClient.post<ChatResponse>('/chat', request);
-      
-      // if (response.data.answer) {
-      //   // 一次性输出整个答案（非流式）
-      //   onChunk(response.data.answer);
-      // }
-      
-      // 传递来源信息
-      onComplete(response.data.sources);
-    } catch (error: any) {
-      onError(error.message || '发送消息失败');
-    }
+      })();
+    });
   }
 
   /**
@@ -82,5 +186,3 @@ export class ChatService {
     return {};
   }
 }
-
-
