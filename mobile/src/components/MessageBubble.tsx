@@ -1,5 +1,5 @@
-import React, {useMemo, useState} from 'react';
-import {View, Text, StyleSheet, useColorScheme, ViewStyle, TouchableOpacity, Alert, Platform, Linking} from 'react-native';
+import React, {useMemo, useState, useEffect, useRef} from 'react';
+import {View, Text, StyleSheet, useColorScheme, ViewStyle, TouchableOpacity, Alert, Platform, Linking, Animated} from 'react-native';
 import Markdown, {MarkdownIt, RenderRules, ASTNode} from 'react-native-markdown-display';
 // @ts-ignore - markdown-it-math 没有类型定义
 import MarkdownItMath from 'markdown-it-math';
@@ -133,6 +133,55 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
     return `${hours}:${minutes}`;
   };
 
+  // 流式加载动画组件
+  const StreamingIndicator = () => {
+    const dot1 = useRef(new Animated.Value(0.3)).current;
+    const dot2 = useRef(new Animated.Value(0.3)).current;
+    const dot3 = useRef(new Animated.Value(0.3)).current;
+
+    useEffect(() => {
+      const createAnimation = (anim: Animated.Value, delay: number) => {
+        return Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(anim, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+            Animated.timing(anim, {
+              toValue: 0.3,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ])
+        );
+      };
+
+      const anim1 = createAnimation(dot1, 0);
+      const anim2 = createAnimation(dot2, 200);
+      const anim3 = createAnimation(dot3, 400);
+
+      anim1.start();
+      anim2.start();
+      anim3.start();
+
+      return () => {
+        anim1.stop();
+        anim2.stop();
+        anim3.stop();
+      };
+    }, [dot1, dot2, dot3]);
+
+    return (
+      <View style={styles.streamingIndicator}>
+        <Animated.Text style={[styles.streamingText, {color: textColor, opacity: dot1}]}>●</Animated.Text>
+        <Animated.Text style={[styles.streamingText, {color: textColor, opacity: dot2, marginLeft: 2}]}>●</Animated.Text>
+        <Animated.Text style={[styles.streamingText, {color: textColor, opacity: dot3, marginLeft: 2}]}>●</Animated.Text>
+      </View>
+    );
+  };
+
   return (
     <View style={[styles.container, isUser ? styles.userContainer : styles.aiContainer]}>
       <View style={[styles.bubble, {backgroundColor: bubbleColor}]}>
@@ -141,21 +190,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({message}) => {
             {message.content}
           </Text>
         ) : (
-          <Markdown
-            markdownit={markdownItInstance}
-            rules={rules}
-            style={getMarkdownStyles(isDark)}
-            mergeStyle={false}>
-            {message.content}
-          </Markdown>
+          <>
+            {message.content ? (
+              <Markdown
+                markdownit={markdownItInstance}
+                rules={rules}
+                style={getMarkdownStyles(isDark)}
+                mergeStyle={false}>
+                {message.content}
+              </Markdown>
+            ) : null}
+            {message.isStreaming && <StreamingIndicator />}
+          </>
         )}
-        {message.isStreaming && (
-          <View style={styles.streamingIndicator}>
-            <Text style={[styles.streamingText, {color: textColor}]}>●</Text>
-          </View>
-        )}
-        {/* AI回答的操作按钮 */}
-        {!isUser && (
+        {/* AI回答的操作按钮 - 仅在非流式状态（传输结束）时显示 */}
+        {!isUser && !message.isStreaming && (
           <View style={[
             styles.actionButtons,
             {
@@ -257,11 +306,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   streamingIndicator: {
-    marginTop: Spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 20,
   },
   streamingText: {
-    fontSize: FontSizes.small,
-    opacity: 0.7,
+    fontSize: 10,
   },
   timestamp: {
     fontSize: FontSizes.small - 1,
