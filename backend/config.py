@@ -6,8 +6,8 @@ YUQUE_TOKEN = "A8Pdf8YCJ7E0cttespGPu1mgutUhozau4u967AFz"
 YUQUE_GROUP = "cychenhaibin"
 # 知识库 namespace，格式为"团队login/知识库slug"，填写后只会获取单一知识库的文档。
 # 使用 list_repos.py 脚本可以查看所有可用的知识库及其 namespace
-YUQUE_NAMESPACE = "cychenhaibin/face"  # FE 面试小站
-# YUQUE_NAMESPACE = None  # 设置为 None 则获取整个团队的所有知识库
+# YUQUE_NAMESPACE = "cychenhaibin/face"  # FE 面试小站
+YUQUE_NAMESPACE = None  # 设置为 None 则获取整个团队的所有知识库
 
 # 开启问答模式，在存在索引的情况下避免重建。若要更新知识库索引及文本，请关闭该模式。
 QA_MODE = True

@@ -1,0 +1,17 @@
+{
+  "name": "yuque-rag-mcp",
+  "version": "1.0.0",
+  "description": "语雀 RAG MCP 服务器 - Vercel 部署版本",
+  "scripts": {
+    "deploy": "vercel --prod",
+    "dev": "vercel dev"
+  },
+  "keywords": [
+    "mcp",
+    "yuque",
+    "rag",
+    "vercel"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,18 @@
+# MCP 服务器依赖（Python 3.8+ 兼容）
+# 只包含 MCP 服务器运行必需的包
+
+# MCP 核心
+fastmcp>=2.0.0
+mcp>=1.0.0
+
+# Web 框架
+starlette>=0.37.0
+
+# HTTP 请求
+requests>=2.31.0
+
+# 环境变量
+python-dotenv>=1.0.0
+
+# 可选：更好的 JSON 处理
+pydantic>=2.0.0

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer
 from app import initialize_retriever_and_llm
 import json
 from typing import AsyncGenerator, Optional, List, Dict
@@ -16,6 +17,9 @@ retriever, llm = initialize_retriever_and_llm()
 # 初始化网络搜索工具
 web_search_tool = WebSearchTool(max_results=5)
 
+# 安全配置（用于 Swagger UI）
+security_scheme = HTTPBearer()
+
 # 创建 FastAPI 应用，配置 Swagger 文档
 app = FastAPI(
     title="语雀 RAG 问答系统 API",
@@ -24,14 +28,34 @@ app = FastAPI(
     
     ## 功能特性
     - 📚 知识库检索问答
-    - 🔄 流式响应支持
+    - 🌐 互联网搜索支持（DuckDuckGo）
+    - 🔄 流式响应支持（SSE）
     - 🤖 支持本地/远程大模型
     - 🔍 两阶段检索（向量 + 重排序）
+    - 🔐 JWT 认证机制
+    
+    ## 认证说明
+    大部分接口需要认证才能访问。认证流程：
+    1. 使用 `/auth/login` 接口登录获取 token
+    2. 在请求头中携带 token：`Authorization: Bearer <your_token>`
+    3. 使用 `/auth/logout` 接口登出
+    
+    **默认测试账号：**
+    - 用户名: `admin`, 密码: `admin123`
+    - 用户名: `user1`, 密码: `password123`
+    - 用户名: `test`, 密码: `test123`
+    
+    ## 搜索模式说明
+    - **默认模式** (`use_web_search=false`, `use_hybrid=false`): 仅从知识库检索
+    - **互联网搜索模式** (`use_web_search=true`): 仅使用互联网搜索（DuckDuckGo）
+    - **混合搜索模式** (`use_hybrid=true`): 同时使用知识库和互联网搜索
     
     ## 使用说明
-    1. 使用 `/chat` 接口进行常规问答（一次性返回）
-    2. 使用 `/chat/stream` 接口获取流式响应（实时打字效果）
-    3. 使用 `/health` 接口检查系统健康状态
+    1. 使用 `/auth/login` 接口登录获取 token
+    2. 使用 `/chat` 接口进行常规问答（一次性返回）
+    3. 使用 `/chat/stream` 接口获取流式响应（实时打字效果）
+    4. 使用 `/health` 接口检查系统健康状态
+    5. 使用 `/auth/logout` 接口登出
     """,
     version="1.0.0",
     contact={
@@ -41,7 +65,52 @@ app = FastAPI(
         "name": "Apache 2.0",
         "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
     },
+    swagger_ui_init_oauth={
+        "clientId": "yuque-rag-api",
+        "appName": "语雀 RAG API",
+    },
 )
+
+# 配置 Swagger UI 的安全方案
+app.openapi_schema = None  # 清除缓存，让 FastAPI 重新生成 schema
+
+def custom_openapi():
+    """自定义 OpenAPI schema，添加安全配置"""
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.openapi.utils import get_openapi
+    
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    
+    # 添加安全配置
+    openapi_schema["components"]["securitySchemes"] = {
+        "Bearer": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "输入获取的 token，格式：Bearer <token>"
+        }
+    }
+    
+    # 为需要认证的接口添加安全要求
+    for path, path_item in openapi_schema["paths"].items():
+        for method, operation in path_item.items():
+            if method in ["post", "get", "put", "delete", "patch"]:
+                # 排除登录和健康检查接口
+                if path not in ["/auth/login", "/health"]:
+                    if "security" not in operation:
+                        operation["security"] = [{"Bearer": []}]
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 # 允许跨域访问
 app.add_middleware(
@@ -81,21 +150,33 @@ class QueryRequest(BaseModel):
     )
     use_web_search: bool = Field(
         False,
-        description="是否使用互联网搜索",
+        description="是否使用互联网搜索（DuckDuckGo）。设置为 true 时，仅使用互联网搜索，不使用知识库。",
         example=False
     )
     use_hybrid: bool = Field(
         False,
-        description="是否混合搜索（知识库+互联网）",
+        description="是否混合搜索（知识库+互联网）。设置为 true 时，同时从知识库和互联网搜索信息。注意：use_web_search 和 use_hybrid 不能同时为 true。",
         example=False
     )
 
 class SourceItem(BaseModel):
     """来源项模型"""
-    type: str = Field(..., description="来源类型", example="knowledge_base")
-    title: str = Field(..., description="标题", example="语雀更新日志")
-    url: Optional[str] = Field(None, description="URL（互联网搜索时使用）")
-    repo: Optional[str] = Field(None, description="知识库名称（知识库检索时使用）")
+    type: str = Field(
+        ..., 
+        description="来源类型：`knowledge_base`（知识库）或 `web_search`（互联网搜索）", 
+        example="knowledge_base"
+    )
+    title: str = Field(..., description="文档标题或网页标题", example="语雀更新日志")
+    url: Optional[str] = Field(
+        None, 
+        description="网页链接（仅互联网搜索来源有此字段）", 
+        example="https://www.yuque.com/example"
+    )
+    repo: Optional[str] = Field(
+        None, 
+        description="知识库名称（仅知识库来源有此字段）", 
+        example="产品文档"
+    )
 
 class ChatResponse(BaseModel):
     """问答响应模型"""
@@ -106,9 +187,10 @@ class ChatResponse(BaseModel):
     )
     sources: Optional[List[SourceItem]] = Field(
         None,
-        description="答案来源列表",
+        description="答案来源列表，最多返回5个来源。包含知识库文档或互联网搜索结果。",
         example=[
-            {"type": "knowledge_base", "title": "语雀更新日志", "repo": "产品文档"}
+            {"type": "knowledge_base", "title": "语雀更新日志", "repo": "产品文档"},
+            {"type": "web_search", "title": "语雀官方更新说明", "url": "https://www.yuque.com/updates"}
         ]
     )
 
@@ -116,6 +198,11 @@ class HealthResponse(BaseModel):
     """健康检查响应模型"""
     status: str = Field(..., description="服务状态", example="ok")
     message: str = Field(..., description="状态信息", example="系统运行正常")
+
+class UserInfoResponse(BaseModel):
+    """用户信息响应模型"""
+    username: str = Field(..., description="用户名", example="admin")
+    message: str = Field(..., description="响应消息", example="认证成功")
 
 
 # ============== API 接口 ==============
@@ -127,7 +214,42 @@ class HealthResponse(BaseModel):
     response_model=LoginResponse,
     tags=["认证"],
     summary="用户登录",
-    description="使用用户名和密码登录系统。一个账号同时只能在一台设备登录，新设备登录会使旧设备的登录失效。"
+    description="""
+    使用用户名和密码登录系统，获取访问token。
+    
+    **单设备登录机制：**
+    - 一个账号同时只能在一台设备登录
+    - 新设备登录会使旧设备的token失效
+    - 每次登录会生成新的token
+    
+    **默认测试账号：**
+    - 用户名: `admin`, 密码: `admin123`
+    - 用户名: `user1`, 密码: `password123`
+    - 用户名: `test`, 密码: `test123`
+    """,
+    responses={
+        200: {
+            "description": "登录成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer",
+                        "username": "admin",
+                        "expires_in": 86400
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "用户名或密码错误",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "用户名或密码错误"}
+                }
+            }
+        }
+    }
 )
 def login(req: LoginRequest):
     """
@@ -170,7 +292,29 @@ def login(req: LoginRequest):
     response_model=LogoutResponse,
     tags=["认证"],
     summary="用户登出",
-    description="登出当前用户，使token失效"
+    description="""
+    登出当前用户，使token失效。
+    
+    **需要认证：** 请在请求头中携带token：`Authorization: Bearer <your_token>`
+    """,
+    responses={
+        200: {
+            "description": "登出成功",
+            "content": {
+                "application/json": {
+                    "example": {"message": "用户 admin 已登出"}
+                }
+            }
+        },
+        401: {
+            "description": "认证失败",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "无效的认证信息"}
+                }
+            }
+        }
+    }
 )
 def logout(current_user: str = Depends(get_current_user)):
     """
@@ -196,9 +340,10 @@ def logout(current_user: str = Depends(get_current_user)):
 
 @app.get(
     "/auth/me",
+    response_model=UserInfoResponse,
     tags=["认证"],
     summary="获取当前用户信息",
-    description="获取当前登录用户的信息"
+    description="获取当前登录用户的信息。需要认证。"
 )
 def get_me(current_user: str = Depends(get_current_user)):
     """
@@ -213,7 +358,10 @@ def get_me(current_user: str = Depends(get_current_user)):
         current_user: 当前认证的用户名（自动注入）
         
     Returns:
-        用户信息
+        UserInfoResponse: 包含用户名和认证成功消息
+        
+    Raises:
+        HTTPException 401: token无效或已过期
     """
     return {
         "username": current_user,
@@ -228,7 +376,20 @@ def get_me(current_user: str = Depends(get_current_user)):
     response_model=HealthResponse,
     tags=["系统"],
     summary="健康检查",
-    description="检查系统运行状态"
+    description="检查系统运行状态。此接口无需认证。",
+    responses={
+        200: {
+            "description": "系统运行正常",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ok",
+                        "message": "系统运行正常"
+                    }
+                }
+            }
+        }
+    }
 )
 def health_check():
     """
@@ -248,7 +409,20 @@ def health_check():
     response_model=ChatResponse,
     tags=["问答"],
     summary="问答接口（一次性返回）",
-    description="向系统提问并获取完整答案（非流式）【需要登录】"
+    description="""
+    向系统提问并获取完整答案（非流式）。
+    
+    **需要认证：** 请在请求头中携带token：`Authorization: Bearer <your_token>`
+    
+    **搜索模式：**
+    - 默认模式：仅从知识库检索（`use_web_search=false`, `use_hybrid=false`）
+    - 互联网搜索：仅使用互联网搜索（`use_web_search=true`）
+    - 混合搜索：同时使用知识库和互联网（`use_hybrid=true`）
+    
+    **响应说明：**
+    - `answer`: 系统生成的完整答案
+    - `sources`: 答案来源列表，最多5个，包含知识库文档或互联网搜索结果
+    """
 )
 def chat(req: QueryRequest, current_user: str = Depends(get_current_user)):
     """
@@ -259,18 +433,30 @@ def chat(req: QueryRequest, current_user: str = Depends(get_current_user)):
     Authorization: Bearer <your_token>
     ```
     
+    **参数说明：**
+    - `question`: 用户提出的问题（必需）
+    - `use_web_search`: 是否使用互联网搜索（默认 false）
+    - `use_hybrid`: 是否混合搜索（默认 false）
+    
+    **注意：** `use_web_search` 和 `use_hybrid` 不能同时为 true
+    
     Args:
-        req: 包含用户问题的请求体
+        req: 包含用户问题和搜索选项的请求体
         current_user: 当前认证的用户名（自动注入）
         
     Returns:
-        ChatResponse: 包含生成的答案
+        ChatResponse: 包含生成的答案和来源列表
+        
+    Raises:
+        HTTPException 401: token无效或已过期
         
     Example:
         ```json
         POST /chat
         {
-            "question": "什么是RAG？"
+            "question": "什么是RAG？",
+            "use_web_search": false,
+            "use_hybrid": false
         }
         ```
     """
@@ -387,13 +573,43 @@ def chat(req: QueryRequest, current_user: str = Depends(get_current_user)):
     "/chat/stream",
     tags=["问答"],
     summary="问答接口（流式返回）",
-    description="向系统提问并获取流式答案（SSE格式，支持实时打字效果）【需要登录】",
+    description="""
+    向系统提问并获取流式答案（SSE格式，支持实时打字效果）。
+    
+    **需要认证：** 请在请求头中携带token：`Authorization: Bearer <your_token>`
+    
+    **搜索模式：**
+    - 默认模式：仅从知识库检索（`use_web_search=false`, `use_hybrid=false`）
+    - 互联网搜索：仅使用互联网搜索（`use_web_search=true`）
+    - 混合搜索：同时使用知识库和互联网（`use_hybrid=true`）
+    
+    **响应格式（Server-Sent Events）：**
+    每个数据块格式：`data: {"content": "文本片段"}\\n\\n`
+    完成时：`data: {"done": true, "sources": [...]}\\n\\n`
+    错误时：`data: {"error": "错误信息", "done": true}\\n\\n`
+    """,
     responses={
         200: {
-            "description": "成功返回流式数据",
+            "description": "成功返回流式数据（SSE格式）",
             "content": {
                 "text/event-stream": {
-                    "example": "data: {\"content\": \"你\"}\n\ndata: {\"content\": \"好\"}\n\n"
+                    "example": """data: {"content": "R"}
+
+data: {"content": "A"}
+
+data: {"content": "G"}
+
+data: {"done": true, "sources": [{"type": "knowledge_base", "title": "RAG介绍", "repo": "技术文档"}]}
+
+"""
+                }
+            }
+        },
+        401: {
+            "description": "认证失败",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "无效的认证信息"}
                 }
             }
         }
@@ -410,24 +626,65 @@ async def chat_stream(req: QueryRequest, current_user: str = Depends(get_current
     Authorization: Bearer <your_token>
     ```
     
+    **参数说明：**
+    - `question`: 用户提出的问题（必需）
+    - `use_web_search`: 是否使用互联网搜索（默认 false）
+    - `use_hybrid`: 是否混合搜索（默认 false）
+    
+    **注意：** `use_web_search` 和 `use_hybrid` 不能同时为 true
+    
+    **响应说明：**
+    - 每个数据块包含 `content` 字段，表示答案的一个片段
+    - 完成时发送 `done: true` 和 `sources` 字段（来源列表）
+    - 错误时发送 `error` 字段和 `done: true`
+    
     Args:
-        req: 包含用户问题的请求体
+        req: 包含用户问题和搜索选项的请求体
         current_user: 当前认证的用户名（自动注入）
         
     Returns:
-        StreamingResponse: SSE 格式的流式响应
+        StreamingResponse: SSE 格式的流式响应，Content-Type 为 `text/event-stream`
+        
+    Raises:
+        HTTPException 401: token无效或已过期
         
     Example:
         ```javascript
-        const eventSource = new EventSource('/chat/stream', {
+        const response = await fetch('/chat/stream', {
             method: 'POST',
-            body: JSON.stringify({question: '什么是RAG？'})
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer <your_token>'
+            },
+            body: JSON.stringify({
+                question: '什么是RAG？',
+                use_web_search: false
+            })
         });
         
-        eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            console.log(data.content); // 逐字输出
-        };
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\\n');
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.content) {
+                        console.log(data.content); // 逐字输出
+                    }
+                    if (data.done) {
+                        console.log('来源:', data.sources);
+                        return;
+                    }
+                }
+            }
+        }
         ```
     """
     query = req.question.strip()

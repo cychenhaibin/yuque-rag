@@ -1,0 +1,46 @@
+# Vercel 忽略文件
+
+# 测试文件
+test_*.py
+*_test.py
+test_*.sh
+
+# 文档
+*.md
+!README.md
+
+# 脚本文件
+*.sh
+install-*.sh
+run_*.sh
+
+# 示例文件
+EXAMPLES.md
+QUICKSTART_*.md
+
+# 开发文件
+.env
+.env.local
+*.log
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
