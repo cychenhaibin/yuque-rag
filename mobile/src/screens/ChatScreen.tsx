@@ -42,6 +42,8 @@ export const ChatScreen: React.FC = () => {
   const lastScrollY = useRef(0);
   const scrollDirection = useRef<'up' | 'down' | null>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentHeightRef = useRef<number>(0); // 存储内容高度
+  const layoutHeightRef = useRef<number>(0); // 存储布局高度
   const {headerOpacity} = useHeaderContext();
   const inputTranslateY = useRef(new Animated.Value(0)).current;
   const keyboardOffset = useRef(new Animated.Value(0)).current;
@@ -49,7 +51,22 @@ export const ChatScreen: React.FC = () => {
   // 滚动到底部的辅助函数
   const scrollToEnd = useCallback((delay: number = 100) => {
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({animated: true});
+      const contentHeight = contentHeightRef.current;
+      const layoutHeight = layoutHeightRef.current;
+      const extraOffset = 100; // 在底部基础上再向下滚动的距离
+      
+      if (contentHeight > 0 && layoutHeight > 0) {
+        // 计算目标偏移量：内容高度 - 布局高度 + 额外偏移量
+        // 这样可以让内容超出可视区域底部 100px
+        const targetOffset = contentHeight - layoutHeight + extraOffset;
+        flatListRef.current?.scrollToOffset({
+          offset: Math.max(0, targetOffset),
+          animated: true,
+        });
+      } else {
+        // 如果高度未知，先滚动到底部
+        flatListRef.current?.scrollToEnd({animated: true});
+      }
     }, delay);
   }, []);
 
@@ -379,6 +396,15 @@ export const ChatScreen: React.FC = () => {
         const currentScrollY = event.nativeEvent.contentOffset.y;
         const deltaY = currentScrollY - lastScrollY.current;
         const scrollThreshold = 10; // 滚动阈值，避免小幅度滚动触发
+        
+        // 更新内容高度和布局高度（如果可用）
+        const {contentSize, layoutMeasurement} = event.nativeEvent;
+        if (contentSize?.height) {
+          contentHeightRef.current = contentSize.height;
+        }
+        if (layoutMeasurement?.height) {
+          layoutHeightRef.current = layoutMeasurement.height;
+        }
 
         // 清除之前的定时器
         if (scrollTimeoutRef.current) {
@@ -506,11 +532,15 @@ export const ChatScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
-          onContentSizeChange={() => {
+          onContentSizeChange={(contentWidth, contentHeight) => {
+            // 更新内容高度
+            contentHeightRef.current = contentHeight;
             // 当内容大小变化时自动滚动到底部
             scrollToEnd(150);
           }}
-          onLayout={() => {
+          onLayout={(event) => {
+            // 更新布局高度
+            layoutHeightRef.current = event.nativeEvent.layout.height;
             // 当布局变化时也滚动到底部，确保内容可见
             if (messages.length > 0) {
               scrollToEnd(200);
